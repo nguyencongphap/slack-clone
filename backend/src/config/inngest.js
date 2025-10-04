@@ -1,6 +1,7 @@
 import { Inngest } from "inngest";
 import { connectDB } from "./db.js";
 import { User } from "../models/user.model.js";
+import { deleteStreamUser, upsertStreamUser } from "./stream.js";
 
 // Create a client to send and receive events
 export const inngest = new Inngest({ id: "slack-clone" });
@@ -17,15 +18,21 @@ const syncUser = inngest.createFunction(
       event.data;
 
     const newUser = {
-      clearkId: id,
+      clerkId: id,
       email: email_addresses[0]?.email_address ?? "",
       name: `${first_name || ""} ${last_name || ""}`,
       image: image_url,
     };
 
+    // Let Inngest add user to MongoDB when getting user.created event from Clerk
     await User.create(newUser);
 
-    // TODO: DO MORE THINGS HERE
+    // We also add user to Stream
+    await upsertStreamUser({
+      id: newUser.clerkId.toString(),
+      name: newUser.name,
+      image: newUser.image,
+    });
   }
 );
 
@@ -35,9 +42,12 @@ const deleteUserFromDB = inngest.createFunction(
   async ({ event }) => {
     await connectDB();
     const { id } = event.data;
-    await User.deleteOne({ clearkId: id });
 
-    // TODO: DO MORE THINGS HERE
+    // Let Inngest delete user in MongoDB when getting user.deleted event from Clerk
+    await User.deleteOne({ clerkId: id });
+
+    // We also delete user from Stream
+    await deleteStreamUser(id.toString());
   }
 );
 
